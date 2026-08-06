@@ -19,3 +19,6 @@ _private/
 .DS_Store
 .vscode/
 .idea/
+
+# Local database
+syncbridge.db

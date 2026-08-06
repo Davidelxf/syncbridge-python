@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from app.schemas.events import IncomingEvent
 
-
 VALID_EVENT = {
     "event_id": "evt_001",
     "source": "warehouse-system",
