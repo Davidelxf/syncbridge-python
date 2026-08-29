@@ -85,15 +85,17 @@ Expected response:
 }
 ```
 
-## Planned event ingestion endpoint
-
-The event ingestion endpoint will be implemented during Phase 1.
+### Event ingestion
 
 ```http
 POST /events
 ```
 
-Expected accepted response:
+SyncBridge validates the incoming event and stores accepted events with the initial `received` status.
+
+A successfully accepted event returns HTTP `202 Accepted`.
+
+Expected response:
 
 ```json
 {
@@ -101,6 +103,8 @@ Expected accepted response:
   "status": "received"
 }
 ```
+
+Invalid events are rejected with HTTP `422 Unprocessable Entity` and are not persisted.
 
 ## Initial event statuses
 

@@ -19,3 +19,8 @@ class IncomingEvent(BaseModel):
     event_type: Literal["part.created"]
     occurred_at: AwareDatetime
     payload: PartCreatedPayload
+
+
+class EventReceivedResponse(BaseModel):
+    event_id: str
+    status: Literal["received"]
