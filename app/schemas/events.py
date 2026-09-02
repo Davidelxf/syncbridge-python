@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from app.events.status import EventStatus
+
 
 class PartCreatedPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -21,6 +23,6 @@ class IncomingEvent(BaseModel):
     payload: PartCreatedPayload
 
 
-class EventReceivedResponse(BaseModel):
+class EventResponse(BaseModel):
     event_id: str
-    status: Literal["received"]
+    status: EventStatus

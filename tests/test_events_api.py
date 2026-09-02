@@ -1,23 +1,12 @@
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Base, EventRecord
+from app.db.models import EventRecord
 from app.db.session import get_session
 from app.main import app
-
-
-@pytest.fixture
-def test_session_factory(tmp_path: Path) -> sessionmaker[Session]:
-    database_path = tmp_path / "test.db"
-    test_engine = create_engine(f"sqlite:///{database_path}")
-    Base.metadata.create_all(test_engine)
-
-    return sessionmaker(test_engine)
 
 
 @pytest.fixture
@@ -94,3 +83,39 @@ def test_post_events_rejects_invalid_event(
         stored_event = session.get(EventRecord, "evt_invalid")
 
         assert stored_event is None
+
+
+def test_get_event_returns_event_status(client: TestClient) -> None:
+    client.post(
+        "/events",
+        json={
+            "event_id": "evt_001",
+            "source": "warehouse-system",
+            "event_type": "part.created",
+            "occurred_at": "2026-06-30T10:15:00Z",
+            "payload": {
+                "part_code": "ANT-001",
+                "quantity": 4,
+                "warehouse": "MURCIA",
+            },
+        },
+    )
+
+    response = client.get("/events/evt_001")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "event_id": "evt_001",
+        "status": "received",
+    }
+
+
+def test_get_event_returns_404_when_event_does_not_exist(
+    client: TestClient,
+) -> None:
+    response = client.get("/events/evt_unknown")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "Event not found",
+    }

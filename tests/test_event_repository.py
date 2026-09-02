@@ -1,20 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Base, EventRecord
-from app.events.repository import create_event
+from app.db.models import EventRecord
+from app.events.repository import create_event, get_event_by_id
 from app.events.status import EventStatus
 from app.schemas.events import IncomingEvent
 
 
-def test_create_event_persists_received_event(tmp_path) -> None:
-    database_path = tmp_path / "test.db"
-    test_engine = create_engine(f"sqlite:///{database_path}")
-    test_session_factory = sessionmaker(test_engine)
-    Base.metadata.create_all(test_engine)
-
+def test_create_event_persists_received_event(
+    test_session_factory: sessionmaker[Session],
+) -> None:
     incoming_event = IncomingEvent.model_validate(
         {
             "event_id": "evt_001",
@@ -46,3 +42,40 @@ def test_create_event_persists_received_event(tmp_path) -> None:
         }
         assert stored_event.status == EventStatus.RECEIVED
         assert stored_event.occurred_at == datetime(2026, 6, 30, 8, 15)
+
+
+def test_get_event_by_id_returns_existing_event(
+    test_session_factory: sessionmaker[Session],
+) -> None:
+    incoming_event = IncomingEvent.model_validate(
+        {
+            "event_id": "evt_001",
+            "source": "warehouse-system",
+            "event_type": "part.created",
+            "occurred_at": "2026-06-30T10:15:00Z",
+            "payload": {
+                "part_code": "ANT-001",
+                "quantity": 4,
+                "warehouse": "MURCIA",
+            },
+        }
+    )
+
+    with test_session_factory() as session:
+        create_event(session, incoming_event)
+
+    with test_session_factory() as session:
+        stored_event = get_event_by_id(session, "evt_001")
+
+        assert stored_event is not None
+        assert stored_event.event_id == "evt_001"
+        assert stored_event.status == EventStatus.RECEIVED
+
+
+def test_get_event_by_id_returns_none_when_event_does_not_exist(
+    test_session_factory: sessionmaker[Session],
+) -> None:
+    with test_session_factory() as session:
+        stored_event = get_event_by_id(session, "evt_unknown")
+
+        assert stored_event is None
