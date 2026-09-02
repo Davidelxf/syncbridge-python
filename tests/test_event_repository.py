@@ -29,6 +29,7 @@ def test_create_event_persists_received_event(
         created_event = create_event(session, incoming_event)
 
         assert created_event.status == EventStatus.RECEIVED
+        assert created_event.received_at is not None
 
     with test_session_factory() as session:
         stored_event = session.get(EventRecord, "evt_001")
@@ -42,6 +43,7 @@ def test_create_event_persists_received_event(
         }
         assert stored_event.status == EventStatus.RECEIVED
         assert stored_event.occurred_at == datetime(2026, 6, 30, 8, 15)
+        assert stored_event.received_at is not None
 
 
 def test_get_event_by_id_returns_existing_event(

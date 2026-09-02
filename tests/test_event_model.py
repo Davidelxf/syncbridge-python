@@ -33,6 +33,7 @@ def test_event_record_can_be_persisted(tmp_path) -> None:
         stored_event = session.get(EventRecord, "evt_001")
 
         assert stored_event is not None
+        assert stored_event.received_at is not None
         assert stored_event.source == "warehouse-system"
         assert stored_event.event_type == "part.created"
         assert stored_event.payload["part_code"] == "ANT-001"
