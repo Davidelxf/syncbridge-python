@@ -22,3 +22,10 @@ def create_event(session: Session, event: IncomingEvent) -> EventRecord:
     session.refresh(event_record)
 
     return event_record
+
+
+def get_event_by_id(
+    session: Session,
+    event_id: str,
+) -> EventRecord | None:
+    return session.get(EventRecord, event_id)
