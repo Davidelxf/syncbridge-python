@@ -26,3 +26,9 @@ class IncomingEvent(BaseModel):
 class EventResponse(BaseModel):
     event_id: str
     status: EventStatus
+
+
+class EventPageResponse(BaseModel):
+    items: list[EventResponse]
+    next_cursor: str | None
+    has_more: bool
