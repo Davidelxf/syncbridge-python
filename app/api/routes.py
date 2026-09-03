@@ -1,11 +1,22 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.core.config import get_cursor_signing_key
 from app.db.session import get_session
-from app.events.repository import create_event, get_event_by_id
+from app.events.pagination import (
+    InvalidCursorError,
+    decode_event_cursor,
+    encode_event_cursor,
+)
+from app.events.repository import (
+    create_event,
+    get_event_by_id,
+    list_events_page,
+)
 from app.schemas.events import (
+    EventPageResponse,
     EventResponse,
     IncomingEvent,
 )
@@ -49,4 +60,58 @@ def get_event_status(
     return EventResponse(
         event_id=event.event_id,
         status=event.status,
+    )
+
+
+@router.get(
+    "/events",
+    response_model=EventPageResponse,
+)
+def get_events(
+    session: Annotated[Session, Depends(get_session)],
+    signing_key: Annotated[str, Depends(get_cursor_signing_key)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: Annotated[str | None, Query()] = None,
+) -> EventPageResponse:
+    decoded_cursor = None
+
+    if cursor is not None:
+        try:
+            decoded_cursor = decode_event_cursor(
+                cursor,
+                signing_key,
+            )
+        except InvalidCursorError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid cursor",
+            ) from exc
+
+    events, has_more = list_events_page(
+        session,
+        page_size=limit,
+        cursor=decoded_cursor,
+    )
+
+    next_cursor = None
+
+    if has_more:
+        last_event = events[-1]
+
+        next_cursor = encode_event_cursor(
+            last_event.received_at,
+            last_event.event_id,
+            signing_key,
+        )
+
+    return EventPageResponse(
+        items=[
+            EventResponse(
+                event_id=event.event_id,
+                status=event.status,
+            )
+            for event in events
+        ],
+        next_cursor=next_cursor,
+        has_more=has_more,
     )
