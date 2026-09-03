@@ -5,7 +5,23 @@ import hmac
 import json
 from datetime import UTC, datetime
 
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+)
+
 CURSOR_VERSION = 1
+
+
+class _EventCursorPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    v: int
+    received_at: AwareDatetime
+    event_id: str = Field(min_length=1)
 
 
 class InvalidCursorError(ValueError):
@@ -20,16 +36,14 @@ def encode_event_cursor(
     if not signing_key:
         raise ValueError("Cursor signing key cannot be empty")
 
-    normalized_received_at = _to_utc(received_at)
-
-    payload = {
-        "v": CURSOR_VERSION,
-        "received_at": normalized_received_at.isoformat(),
-        "event_id": event_id,
-    }
+    payload = _EventCursorPayload(
+        v=CURSOR_VERSION,
+        received_at=_to_utc(received_at),
+        event_id=event_id,
+    )
 
     payload_bytes = json.dumps(
-        payload,
+        payload.model_dump(mode="json"),
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
@@ -55,61 +69,38 @@ def decode_event_cursor(
         raise ValueError("Cursor signing key cannot be empty")
 
     if cursor.count(".") != 1:
-        raise InvalidCursorError("Invalid cursor")
-
-    payload_segment, signature_segment = cursor.split(".")
-
-    expected_signature = hmac.new(
-        signing_key.encode("utf-8"),
-        payload_segment.encode("ascii"),
-        hashlib.sha256,
-    ).digest()
+        raise InvalidCursorError()
 
     try:
+        payload_segment, signature_segment = cursor.split(".")
+
+        expected_signature = hmac.new(
+            signing_key.encode("utf-8"),
+            payload_segment.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+
         provided_signature = _base64_decode(signature_segment)
-    except (ValueError, binascii.Error) as exc:
-        raise InvalidCursorError("Invalid cursor") from exc
+    except (ValueError, UnicodeError, binascii.Error) as exc:
+        raise InvalidCursorError() from exc
 
     if not hmac.compare_digest(
         provided_signature,
         expected_signature,
     ):
-        raise InvalidCursorError("Invalid cursor")
+        raise InvalidCursorError()
 
     try:
-        payload = json.loads(_base64_decode(payload_segment))
-    except (
-        ValueError,
-        UnicodeDecodeError,
-        json.JSONDecodeError,
-        binascii.Error,
-    ) as exc:
-        raise InvalidCursorError("Invalid cursor") from exc
+        payload = _EventCursorPayload.model_validate_json(
+            _base64_decode(payload_segment)
+        )
+    except (ValidationError, ValueError, UnicodeError, binascii.Error) as exc:
+        raise InvalidCursorError() from exc
 
-    if not isinstance(payload, dict):
-        raise InvalidCursorError("Invalid cursor")
+    if payload.v != CURSOR_VERSION:
+        raise InvalidCursorError()
 
-    if payload.get("v") != CURSOR_VERSION:
-        raise InvalidCursorError("Invalid cursor")
-
-    received_at_value = payload.get("received_at")
-    event_id = payload.get("event_id")
-
-    if not isinstance(received_at_value, str):
-        raise InvalidCursorError("Invalid cursor")
-
-    if not isinstance(event_id, str) or not event_id:
-        raise InvalidCursorError("Invalid cursor")
-
-    try:
-        received_at = datetime.fromisoformat(received_at_value)
-    except ValueError as exc:
-        raise InvalidCursorError("Invalid cursor") from exc
-
-    if received_at.tzinfo is None:
-        raise InvalidCursorError("Invalid cursor")
-
-    return received_at.astimezone(UTC), event_id
+    return payload.received_at.astimezone(UTC), payload.event_id
 
 
 def _base64_encode(value: bytes) -> str:
@@ -120,13 +111,18 @@ def _base64_decode(value: str) -> bytes:
     encoded = value.encode("ascii")
     padding = b"=" * (-len(encoded) % 4)
 
-    return base64.urlsafe_b64decode(encoded + padding)
+    return base64.b64decode(
+        encoded + padding,
+        altchars=b"-_",
+        validate=True,
+    )
 
 
 def _to_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        # SQLite CURRENT_TIMESTAMP is UTC but is returned without timezone
-        # information, so normalize it explicitly before encoding the cursor.
+        # received_at is generated in UTC by the database. Some database
+        # drivers may return it without timezone information, so normalize
+        # it explicitly before encoding the cursor.
         return value.replace(tzinfo=UTC)
 
     return value.astimezone(UTC)
