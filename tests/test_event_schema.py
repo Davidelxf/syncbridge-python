@@ -3,7 +3,8 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.events import IncomingEvent
+from app.events.status import EventStatus
+from app.schemas.events import EventPageResponse, EventResponse, IncomingEvent
 
 VALID_EVENT = {
     "event_id": "evt_001",
@@ -63,3 +64,20 @@ def test_incoming_event_requires_timezone() -> None:
 
     with pytest.raises(ValidationError):
         IncomingEvent.model_validate(event_data)
+
+
+def test_event_page_response_accepts_paginated_events() -> None:
+    response = EventPageResponse(
+        items=[
+            EventResponse(
+                event_id="evt_001",
+                status=EventStatus.RECEIVED,
+            )
+        ],
+        next_cursor="cursor-value",
+        has_more=True,
+    )
+
+    assert len(response.items) == 1
+    assert response.next_cursor == "cursor-value"
+    assert response.has_more is True

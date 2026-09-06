@@ -4,13 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.routes import router
-from app.db.models import Base
-from app.db.session import engine
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
-    Base.metadata.create_all(engine)
     yield
 
 

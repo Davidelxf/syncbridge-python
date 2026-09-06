@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6,13 +7,20 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import EventRecord
 from app.db.session import get_session
+from app.events.status import EventStatus
 from app.main import app
 
 
 @pytest.fixture
 def client(
     test_session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[TestClient]:
+    monkeypatch.setenv(
+        "CURSOR_SIGNING_KEY",
+        "test-cursor-signing-key",
+    )
+
     def override_get_session() -> Iterator[Session]:
         with test_session_factory() as session:
             yield session
@@ -119,3 +127,247 @@ def test_get_event_returns_404_when_event_does_not_exist(
     assert response.json() == {
         "detail": "Event not found",
     }
+
+
+def test_get_events_paginates_with_cursor(
+    client: TestClient,
+    test_session_factory: sessionmaker[Session],
+) -> None:
+    received_at = datetime(2026, 9, 3, 12, 0)
+
+    with test_session_factory() as session:
+        _add_event(session, "evt_003", received_at)
+        _add_event(session, "evt_002", received_at)
+        _add_event(session, "evt_001", received_at)
+        session.commit()
+
+    first_response = client.get("/events?limit=2")
+
+    assert first_response.status_code == 200
+
+    first_page = first_response.json()
+
+    assert first_page["items"] == [
+        {
+            "event_id": "evt_003",
+            "status": "received",
+        },
+        {
+            "event_id": "evt_002",
+            "status": "received",
+        },
+    ]
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] is not None
+
+    second_response = client.get(
+        "/events",
+        params={
+            "limit": 2,
+            "cursor": first_page["next_cursor"],
+        },
+    )
+
+    assert second_response.status_code == 200
+
+    assert second_response.json() == {
+        "items": [
+            {
+                "event_id": "evt_001",
+                "status": "received",
+            }
+        ],
+        "next_cursor": None,
+        "has_more": False,
+    }
+
+
+def test_get_events_rejects_invalid_cursor(
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/events",
+        params={"cursor": "invalid-cursor"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Invalid cursor",
+    }
+
+
+@pytest.mark.parametrize("limit", [0, 101])
+def test_get_events_rejects_invalid_limit(
+    client: TestClient,
+    limit: int,
+) -> None:
+    response = client.get(
+        "/events",
+        params={"limit": limit},
+    )
+
+    assert response.status_code == 422
+
+
+def test_get_events_returns_empty_page(
+    client: TestClient,
+) -> None:
+    response = client.get("/events")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [],
+        "next_cursor": None,
+        "has_more": False,
+    }
+
+
+def test_get_events_paginates_with_status_filter(
+    client: TestClient,
+    test_session_factory: sessionmaker[Session],
+) -> None:
+    received_at = datetime(2026, 9, 6, 10, 0)
+
+    with test_session_factory() as session:
+        _add_event(
+            session,
+            "evt_005",
+            received_at,
+            EventStatus.FAILED,
+        )
+        _add_event(
+            session,
+            "evt_004",
+            received_at,
+            EventStatus.COMPLETED,
+        )
+        _add_event(
+            session,
+            "evt_003",
+            received_at,
+            EventStatus.FAILED,
+        )
+        _add_event(
+            session,
+            "evt_002",
+            received_at,
+            EventStatus.COMPLETED,
+        )
+        _add_event(
+            session,
+            "evt_001",
+            received_at,
+            EventStatus.FAILED,
+        )
+        session.commit()
+
+    first_response = client.get(
+        "/events",
+        params={
+            "status": "failed",
+            "limit": 2,
+        },
+    )
+
+    assert first_response.status_code == 200
+
+    first_page = first_response.json()
+
+    assert [item["event_id"] for item in first_page["items"]] == [
+        "evt_005",
+        "evt_003",
+    ]
+    assert first_page["has_more"] is True
+
+    second_response = client.get(
+        "/events",
+        params={
+            "status": "failed",
+            "limit": 2,
+            "cursor": first_page["next_cursor"],
+        },
+    )
+
+    assert second_response.status_code == 200
+    assert [item["event_id"] for item in second_response.json()["items"]] == [
+        "evt_001",
+    ]
+
+
+def test_get_events_rejects_cursor_with_different_status_filter(
+    client: TestClient,
+    test_session_factory: sessionmaker[Session],
+) -> None:
+    received_at = datetime(2026, 9, 6, 10, 0)
+
+    with test_session_factory() as session:
+        _add_event(
+            session,
+            "evt_002",
+            received_at,
+            EventStatus.FAILED,
+        )
+        _add_event(
+            session,
+            "evt_001",
+            received_at,
+            EventStatus.FAILED,
+        )
+        session.commit()
+
+    first_response = client.get(
+        "/events",
+        params={
+            "status": "failed",
+            "limit": 1,
+        },
+    )
+
+    cursor = first_response.json()["next_cursor"]
+
+    response = client.get(
+        "/events",
+        params={
+            "status": "completed",
+            "cursor": cursor,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Invalid cursor for requested filters",
+    }
+
+
+def test_get_events_rejects_unknown_status(
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/events",
+        params={"status": "unknown"},
+    )
+
+    assert response.status_code == 422
+
+
+def _add_event(
+    session: Session,
+    event_id: str,
+    received_at: datetime,
+    event_status: EventStatus = EventStatus.RECEIVED,
+) -> None:
+    session.add(
+        EventRecord(
+            event_id=event_id,
+            source="warehouse-system",
+            event_type="part.created",
+            occurred_at=received_at,
+            received_at=received_at,
+            payload={
+                "part_code": "ANT-001",
+                "quantity": 1,
+                "warehouse": "MURCIA",
+            },
+            status=event_status.value,
+        )
+    )
