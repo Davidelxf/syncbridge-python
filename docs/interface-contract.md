@@ -1,6 +1,6 @@
 # Interface Contract
 
-This document describes the initial integration contract between the fictitious systems used in this project.
+This document describes the integration contract between the fictitious systems used in this project.
 
 ## Systems
 
@@ -16,9 +16,9 @@ Middleware that receives, validates, stores and processes events.
 
 Target system that receives normalized data from SyncBridge.
 
-## Initial event format
+## Event format
 
-System A will send events using this structure:
+System A sends events using this structure:
 
 ```json
 {
@@ -34,17 +34,17 @@ System A will send events using this structure:
 }
 ```
 
-The first implementation supports only the `part.created` event type.
+The current implementation supports only the `part.created` event type.
 
 ## Field description
 
-| Field         | Required | Description                                             |
-| ------------- | -------: | ------------------------------------------------------- |
-| `event_id`    |      Yes | Unique event identifier provided by System A.           |
-| `source`      |      Yes | Name of the source system.                              |
-| `event_type`  |      Yes | Business event type. Initially, only `part.created`.    |
-| `occurred_at` |      Yes | Date and time of the event, including timezone data.    |
-| `payload`     |      Yes | Business data associated with the event.                |
+| Field         | Required | Description                                          |
+| ------------- | -------: | ---------------------------------------------------- |
+| `event_id`    |      Yes | Unique event identifier provided by System A.        |
+| `source`      |      Yes | Name of the source system.                           |
+| `event_type`  |      Yes | Business event type. Currently only `part.created`.  |
+| `occurred_at` |      Yes | Date and time of the event, including timezone data. |
+| `payload`     |      Yes | Business data associated with the event.             |
 
 ## Supported event types
 
@@ -54,22 +54,22 @@ Represents the creation of a part in the source warehouse system.
 
 Its payload must contain:
 
-| Field       | Required | Type    | Description                                      |
-| ----------- | -------: | ------- | ------------------------------------------------ |
-| `part_code` |      Yes | String  | Non-empty identifier of the created part.        |
-| `quantity`  |      Yes | Integer | Quantity reported by System A. Must be above 0.  |
-| `warehouse` |      Yes | String  | Non-empty warehouse associated with the part.    |
+| Field       | Required | Type    | Description                                     |
+| ----------- | -------: | ------- | ----------------------------------------------- |
+| `part_code` |      Yes | String  | Non-empty identifier of the created part.       |
+| `quantity`  |      Yes | Integer | Quantity reported by System A. Must be above 0. |
+| `warehouse` |      Yes | String  | Non-empty warehouse associated with the part.   |
 
 ## Validation rules
 
 - All fields defined in the event structure are required.
-- `event_type` must be `part.created` in the first implementation.
+- `event_type` must be `part.created` in the current implementation.
 - `occurred_at` must include timezone information.
 - `part_code` and `warehouse` must be non-empty strings.
 - `quantity` must be an integer greater than 0.
 - Fields not defined in this contract are rejected.
 
-## Initial API endpoints
+## API endpoints
 
 ### Health check
 
@@ -106,9 +106,83 @@ Expected response:
 
 Invalid events are rejected with HTTP `422 Unprocessable Entity` and are not persisted.
 
-## Initial event statuses
+### Event status query
 
-The project will use these synchronization statuses:
+```http
+GET /events/{event_id}
+```
+
+Returns the current synchronization status of an event.
+
+Example response:
+
+```json
+{
+  "event_id": "evt_001",
+  "status": "received"
+}
+```
+
+If the event does not exist, SyncBridge returns HTTP `404 Not Found`.
+
+### Event listing
+
+```http
+GET /events
+```
+
+Returns events from newest to oldest using cursor-based pagination.
+
+Optional query parameters:
+
+| Parameter | Description |
+| --------- | ----------- |
+| `status`  | Filters events by synchronization status. |
+| `limit`   | Maximum number of events returned. Defaults to `50` and must be between `1` and `100`. |
+| `cursor`  | Opaque cursor returned by the previous page. |
+
+Example request:
+
+```http
+GET /events?status=failed&limit=20
+```
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "event_id": "evt_010",
+      "status": "failed"
+    }
+  ],
+  "next_cursor": "opaque-cursor-value",
+  "has_more": true
+}
+```
+
+When `has_more` is `true`, `next_cursor` can be used to request the next page.
+
+Example continuation request:
+
+```http
+GET /events?status=failed&limit=20&cursor=opaque-cursor-value
+```
+
+Clients must treat cursors as opaque values and must not modify or interpret their contents.
+
+A cursor must be reused with the same filters that were used when it was generated.
+
+Invalid or modified cursors return HTTP `400 Bad Request`.
+
+A cursor reused with different filters also returns HTTP `400 Bad Request`.
+
+Unsupported `status` values and invalid `limit` values return HTTP `422 Unprocessable Entity`.
+
+## Event statuses
+
+The project currently defines these synchronization statuses:
 
 - `received`
 - `queued`
@@ -116,8 +190,14 @@ The project will use these synchronization statuses:
 - `completed`
 - `failed`
 
+Newly accepted events are stored with the `received` status.
+
+Rules for valid transitions between statuses will be introduced as part of the status-management flow.
+
 ## Notes
 
 This contract is intentionally simple.
 
 Its purpose is to make the integration understandable and testable without adding unnecessary bureaucracy.
+
+Implementation details such as cursor encoding, signing algorithms, database indexes and migration mechanics are intentionally kept outside this contract.
