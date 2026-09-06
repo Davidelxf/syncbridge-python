@@ -18,6 +18,12 @@ class EventRecord(Base):
             "received_at",
             "event_id",
         ),
+        Index(
+            "ix_events_status_received_at_event_id",
+            "status",
+            "received_at",
+            "event_id",
+        ),
     )
 
     event_id: Mapped[str] = mapped_column(String, primary_key=True)
