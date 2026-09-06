@@ -13,6 +13,8 @@ from pydantic import (
     ValidationError,
 )
 
+from app.events.status import EventStatus
+
 CURSOR_VERSION = 1
 
 
@@ -22,6 +24,7 @@ class _EventCursorPayload(BaseModel):
     v: int
     received_at: AwareDatetime
     event_id: str = Field(min_length=1)
+    status: EventStatus | None
 
 
 class InvalidCursorError(ValueError):
@@ -32,6 +35,7 @@ def encode_event_cursor(
     received_at: datetime,
     event_id: str,
     signing_key: str,
+    event_status: EventStatus | None = None,
 ) -> str:
     if not signing_key:
         raise ValueError("Cursor signing key cannot be empty")
@@ -40,6 +44,7 @@ def encode_event_cursor(
         v=CURSOR_VERSION,
         received_at=_to_utc(received_at),
         event_id=event_id,
+        status=event_status,
     )
 
     payload_bytes = json.dumps(
@@ -64,7 +69,7 @@ def encode_event_cursor(
 def decode_event_cursor(
     cursor: str,
     signing_key: str,
-) -> tuple[datetime, str]:
+) -> tuple[datetime, str, EventStatus | None]:
     if not signing_key:
         raise ValueError("Cursor signing key cannot be empty")
 
@@ -100,7 +105,11 @@ def decode_event_cursor(
     if payload.v != CURSOR_VERSION:
         raise InvalidCursorError()
 
-    return payload.received_at.astimezone(UTC), payload.event_id
+    return (
+        payload.received_at.astimezone(UTC),
+        payload.event_id,
+        payload.status,
+    )
 
 
 def _base64_encode(value: bytes) -> str:

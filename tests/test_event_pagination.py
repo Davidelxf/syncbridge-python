@@ -7,6 +7,7 @@ from app.events.pagination import (
     decode_event_cursor,
     encode_event_cursor,
 )
+from app.events.status import EventStatus
 
 SIGNING_KEY = "test-cursor-signing-key"
 
@@ -25,15 +26,45 @@ def test_event_cursor_round_trip() -> None:
         received_at,
         "evt_001",
         SIGNING_KEY,
+        EventStatus.FAILED,
     )
 
-    decoded_received_at, decoded_event_id = decode_event_cursor(
+    (
+        decoded_received_at,
+        decoded_event_id,
+        decoded_status,
+    ) = decode_event_cursor(
         cursor,
         SIGNING_KEY,
     )
 
     assert decoded_received_at == received_at
     assert decoded_event_id == "evt_001"
+    assert decoded_status == EventStatus.FAILED
+
+
+def test_event_cursor_round_trip_without_status_filter() -> None:
+    received_at = datetime(
+        2026,
+        9,
+        3,
+        15,
+        30,
+        tzinfo=UTC,
+    )
+
+    cursor = encode_event_cursor(
+        received_at,
+        "evt_001",
+        SIGNING_KEY,
+    )
+
+    _, _, decoded_status = decode_event_cursor(
+        cursor,
+        SIGNING_KEY,
+    )
+
+    assert decoded_status is None
 
 
 def test_event_cursor_rejects_tampered_payload() -> None:

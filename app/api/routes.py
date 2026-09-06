@@ -15,6 +15,7 @@ from app.events.repository import (
     get_event_by_id,
     list_events_page,
 )
+from app.events.status import EventStatus
 from app.schemas.events import (
     EventPageResponse,
     EventResponse,
@@ -72,12 +73,20 @@ def get_events(
     signing_key: Annotated[str, Depends(get_cursor_signing_key)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query()] = None,
+    event_status: Annotated[
+        EventStatus | None,
+        Query(alias="status"),
+    ] = None,
 ) -> EventPageResponse:
     decoded_cursor = None
 
     if cursor is not None:
         try:
-            decoded_cursor = decode_event_cursor(
+            (
+                cursor_received_at,
+                cursor_event_id,
+                cursor_status,
+            ) = decode_event_cursor(
                 cursor,
                 signing_key,
             )
@@ -87,10 +96,22 @@ def get_events(
                 detail="Invalid cursor",
             ) from exc
 
+        if cursor_status != event_status:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid cursor for requested filters",
+            )
+
+        decoded_cursor = (
+            cursor_received_at,
+            cursor_event_id,
+        )
+
     events, has_more = list_events_page(
         session,
         page_size=limit,
         cursor=decoded_cursor,
+        event_status=event_status,
     )
 
     next_cursor = None
@@ -102,6 +123,7 @@ def get_events(
             last_event.received_at,
             last_event.event_id,
             signing_key,
+            event_status,
         )
 
     return EventPageResponse(

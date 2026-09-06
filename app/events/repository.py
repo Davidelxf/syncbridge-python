@@ -36,11 +36,15 @@ def list_events_page(
     session: Session,
     page_size: int,
     cursor: tuple[datetime, str] | None = None,
+    event_status: EventStatus | None = None,
 ) -> tuple[list[EventRecord], bool]:
     statement = select(EventRecord).order_by(
         EventRecord.received_at.desc(),
         EventRecord.event_id.desc(),
     )
+
+    if event_status is not None:
+        statement = statement.where(EventRecord.status == event_status.value)
 
     if cursor is not None:
         cursor_received_at, cursor_event_id = cursor

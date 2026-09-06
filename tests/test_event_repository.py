@@ -164,10 +164,80 @@ def test_list_events_page_continues_after_cursor(
     assert second_has_more is False
 
 
+def test_list_events_page_filters_by_status(
+    test_session_factory: sessionmaker[Session],
+) -> None:
+    received_at = datetime(2026, 9, 6, 10, 0)
+
+    with test_session_factory() as session:
+        _add_event(
+            session,
+            "evt_005",
+            received_at,
+            EventStatus.FAILED,
+        )
+        _add_event(
+            session,
+            "evt_004",
+            received_at,
+            EventStatus.COMPLETED,
+        )
+        _add_event(
+            session,
+            "evt_003",
+            received_at,
+            EventStatus.FAILED,
+        )
+        _add_event(
+            session,
+            "evt_002",
+            received_at,
+            EventStatus.COMPLETED,
+        )
+        _add_event(
+            session,
+            "evt_001",
+            received_at,
+            EventStatus.FAILED,
+        )
+        session.commit()
+
+    with test_session_factory() as session:
+        first_page, first_has_more = list_events_page(
+            session,
+            page_size=2,
+            event_status=EventStatus.FAILED,
+        )
+
+        cursor = (
+            first_page[-1].received_at,
+            first_page[-1].event_id,
+        )
+
+        second_page, second_has_more = list_events_page(
+            session,
+            page_size=2,
+            cursor=cursor,
+            event_status=EventStatus.FAILED,
+        )
+
+    assert [event.event_id for event in first_page] == [
+        "evt_005",
+        "evt_003",
+    ]
+    assert first_has_more is True
+
+    assert [event.event_id for event in second_page] == [
+        "evt_001",
+    ]
+    assert second_has_more is False
+
+
 def _add_event(
     session: Session,
     event_id: str,
     received_at: datetime,
+    event_status: EventStatus = EventStatus.RECEIVED,
 ) -> None:
     session.add(
         EventRecord(
@@ -181,6 +251,6 @@ def _add_event(
                 "quantity": 1,
                 "warehouse": "MURCIA",
             },
-            status=EventStatus.RECEIVED.value,
+            status=event_status.value,
         )
     )
