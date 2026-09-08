@@ -3,13 +3,33 @@ name: CI
 on:
   push:
     branches:
-      - master
+      - main
       - develop
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: syncbridge
+          POSTGRES_PASSWORD: syncbridge
+          POSTGRES_DB: syncbridge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U syncbridge -d syncbridge"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg://syncbridge:syncbridge@localhost:5432/syncbridge
+      TEST_DATABASE_URL: postgresql+psycopg://syncbridge:syncbridge@localhost:5432/syncbridge_test
+      CURSOR_SIGNING_KEY: ci-test-signing-key
 
     steps:
       - name: Checkout repository
@@ -30,6 +50,24 @@ jobs:
 
       - name: Check Ruff formatting
         run: python -m ruff format --check .
+
+      - name: Create test database
+        run: |
+          python - <<'PY'
+          import psycopg
+
+          with psycopg.connect(
+              "postgresql://syncbridge:syncbridge@localhost:5432/postgres",
+              autocommit=True,
+          ) as connection:
+              connection.execute("CREATE DATABASE syncbridge_test")
+          PY
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Check database migrations
+        run: alembic check
 
       - name: Run tests
         run: python -m pytest

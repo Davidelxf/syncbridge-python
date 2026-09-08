@@ -1,17 +1,14 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Base, EventRecord
+from app.db.models import EventRecord
+from app.events.status import EventStatus
 
 
-def test_event_record_can_be_persisted(tmp_path) -> None:
-    database_path = tmp_path / "test.db"
-    test_engine = create_engine(f"sqlite:///{database_path}")
-    test_session_factory = sessionmaker(test_engine)
-    Base.metadata.create_all(test_engine)
-
+def test_event_record_can_be_persisted(
+    test_session_factory: sessionmaker[Session],
+) -> None:
     event = EventRecord(
         event_id="evt_001",
         source="warehouse-system",
@@ -22,7 +19,7 @@ def test_event_record_can_be_persisted(tmp_path) -> None:
             "quantity": 4,
             "warehouse": "MURCIA",
         },
-        status="received",
+        status=EventStatus.RECEIVED.value,
     )
 
     with test_session_factory() as session:
@@ -37,4 +34,4 @@ def test_event_record_can_be_persisted(tmp_path) -> None:
         assert stored_event.source == "warehouse-system"
         assert stored_event.event_type == "part.created"
         assert stored_event.payload["part_code"] == "ANT-001"
-        assert stored_event.status == "received"
+        assert stored_event.status == EventStatus.RECEIVED

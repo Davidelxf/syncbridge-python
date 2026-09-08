@@ -33,6 +33,8 @@ Implemented:
 * event validation with Pydantic
 * `POST /events` event ingestion
 * event persistence with SQLAlchemy
+* PostgreSQL as the local development and test database
+* PostgreSQL 17 provided through Docker Compose
 * Alembic database migrations
 * `GET /events/{event_id}` event status lookup
 * `GET /events` event listing
@@ -41,7 +43,7 @@ Implemented:
 * signed pagination cursors
 * stable ordering by `received_at` and `event_id`
 * database indexes for paginated event queries
-* pytest test suite
+* pytest test suite running against PostgreSQL
 * Ruff linting and formatting
 * initial interface contract
 
@@ -101,6 +103,31 @@ Install development dependencies:
 pip install -r requirements-dev.txt
 ```
 
+Start PostgreSQL:
+
+```bash
+docker compose up -d postgres
+```
+
+Check that the PostgreSQL container is healthy:
+
+```bash
+docker compose ps
+```
+
+Docker Compose creates two local databases:
+
+* `syncbridge` for the application.
+* `syncbridge_test` for the test suite.
+
+The test database is created automatically when the PostgreSQL Docker volume is initialized for the first time.
+
+Apply the database migrations:
+
+```bash
+alembic upgrade head
+```
+
 ## Environment variables
 
 ### Cursor signing key
@@ -125,10 +152,10 @@ Do not commit real secrets to the repository.
 
 ### Database URL
 
-By default, SyncBridge uses a local SQLite database:
+By default, SyncBridge connects to the PostgreSQL instance provided by Docker Compose:
 
 ```text
-sqlite:///./syncbridge.db
+postgresql+psycopg://syncbridge:syncbridge@localhost:5432/syncbridge
 ```
 
 A different database URL can be provided through the `DATABASE_URL` environment variable.
@@ -136,16 +163,28 @@ A different database URL can be provided through the `DATABASE_URL` environment 
 Example:
 
 ```bash
-export DATABASE_URL="sqlite:///./syncbridge.db"
+export DATABASE_URL="postgresql+psycopg://syncbridge:syncbridge@localhost:5432/syncbridge"
 ```
 
 Windows PowerShell:
 
 ```powershell
-$env:DATABASE_URL="sqlite:///./syncbridge.db"
+$env:DATABASE_URL="postgresql+psycopg://syncbridge:syncbridge@localhost:5432/syncbridge"
 ```
 
-Setting `DATABASE_URL` is optional when using the default SQLite configuration.
+Setting `DATABASE_URL` is optional when using the default local PostgreSQL configuration.
+
+### Test database URL
+
+The test suite uses a separate PostgreSQL database:
+
+```text
+postgresql+psycopg://syncbridge:syncbridge@localhost:5432/syncbridge_test
+```
+
+A different test database can be provided through the `TEST_DATABASE_URL` environment variable.
+
+The default local configuration does not require setting this variable manually.
 
 ## Database migrations
 
@@ -169,7 +208,19 @@ Check whether the SQLAlchemy models contain schema changes that are not represen
 alembic check
 ```
 
+A fresh PostgreSQL database can be reconstructed from the existing migration history by running:
+
+```bash
+alembic upgrade head
+```
+
 ## Run the API
+
+Make sure PostgreSQL is running:
+
+```bash
+docker compose up -d postgres
+```
 
 Start the FastAPI application:
 
@@ -313,9 +364,17 @@ received_at
 event_id
 ```
 
-The index was introduced after inspecting the SQLite query execution plan for the filtered event listing.
+The composite index is designed to support filtered event pagination by combining the status filter with the columns used for stable ordering.
 
 ## Tests
+
+The test suite runs against the dedicated PostgreSQL `syncbridge_test` database.
+
+Make sure PostgreSQL is running before executing the tests:
+
+```bash
+docker compose up -d postgres
+```
 
 Run the complete test suite:
 
@@ -335,6 +394,9 @@ Tests currently cover areas such as:
 * pagination with status filters
 * invalid cursor handling
 * API query parameter validation
+* PostgreSQL persistence and timezone-aware datetimes
+
+The test schema is created from SQLAlchemy metadata for the test session and cleaned between tests. Persistent application schema evolution remains the responsibility of Alembic.
 
 ## Linting and formatting
 
