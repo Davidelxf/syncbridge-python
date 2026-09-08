@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -42,7 +42,14 @@ def test_create_event_persists_received_event(
             "warehouse": "MURCIA",
         }
         assert stored_event.status == EventStatus.RECEIVED
-        assert stored_event.occurred_at == datetime(2026, 6, 30, 8, 15)
+        assert stored_event.occurred_at == datetime(
+            2026,
+            6,
+            30,
+            8,
+            15,
+            tzinfo=UTC,
+        )
         assert stored_event.received_at is not None
 
 
