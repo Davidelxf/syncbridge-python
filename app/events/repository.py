@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from app.db.models import EventRecord
@@ -48,14 +48,14 @@ def list_events_page(
 
     if cursor is not None:
         cursor_received_at, cursor_event_id = cursor
-
         statement = statement.where(
-            or_(
-                EventRecord.received_at < cursor_received_at,
-                and_(
-                    EventRecord.received_at == cursor_received_at,
-                    EventRecord.event_id < cursor_event_id,
-                ),
+            tuple_(
+                EventRecord.received_at,
+                EventRecord.event_id,
+            )
+            < (
+                cursor_received_at,
+                cursor_event_id,
             )
         )
 
